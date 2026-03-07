@@ -36,9 +36,10 @@ app.post("/login", async (req, res) => {
     console.log("TT login status:", r.status, "body:", JSON.stringify(d));
 
     if (!r.ok) {
-      const errMsg = d?.error?.message || d?.errors?.[0]?.message || "";
-      // Any 401 without an mfaCode = MFA challenge
-      if (r.status === 401 && !mfaCode) {
+      const errMsg = d?.error?.message || "";
+      const errCode = d?.error?.code || "";
+      // Tastytrade device/MFA challenge
+      if (errCode === "device_challenge_required" || r.status === 403) {
         return res.status(200).json({ mfaRequired: true, message: "Check your phone or email for a verification code." });
       }
       return res.status(401).json({ error: errMsg || JSON.stringify(d) });
