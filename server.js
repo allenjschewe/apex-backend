@@ -18,12 +18,14 @@ app.get("/", (req, res) => res.json({ status: "Apex Backend running ✓" }));
 
 // ── LOGIN ────────────────────────────────────────────────────────────────────
 app.post("/login", async (req, res) => {
-  const { username, password, mfaCode } = req.body;
+  const { username, password, mfaCode, challengeToken } = req.body;
   if (!username || !password)
     return res.status(400).json({ error: "username and password required" });
   try {
     const body = { login: username, password };
     if (mfaCode) body["one-time-password"] = mfaCode;
+    const extraHeaders = {};
+    if (challengeToken) extraHeaders["X-Tastyworks-Challenge-Token"] = challengeToken;
 
     const r = await fetch(`${TT}/sessions`, {
       method: "POST",
@@ -38,9 +40,21 @@ app.post("/login", async (req, res) => {
     if (!r.ok) {
       const errMsg = d?.error?.message || "";
       const errCode = d?.error?.code || "";
-      // Tastytrade device/MFA challenge
+      // Tastytrade device challenge — need to request a code first
       if (errCode === "device_challenge_required" || r.status === 403) {
-        return res.status(200).json({ mfaRequired: true, message: "Check your phone or email for a verification code." });
+        // Get the challenge token from headers and request a code be sent
+        const challengeToken = r.headers.get("x-tastyworks-challenge-token") || d?.error?.redirect?.required_headers?.[0] || "";
+        // Hit the device-challenge endpoint to trigger SMS/email code
+        try {
+          await fetch(`${TT}/device-challenge`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Tastyworks-Challenge-Token": challengeToken,
+            },
+          });
+        } catch(e) { console.log("challenge request error:", e.message); }
+        return res.status(200).json({ mfaRequired: true, challengeToken, message: "A verification code has been sent to your phone." });
       }
       return res.status(401).json({ error: errMsg || JSON.stringify(d) });
     }
