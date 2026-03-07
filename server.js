@@ -18,16 +18,25 @@ app.get("/", (req, res) => res.json({ status: "Apex Backend running ✓" }));
 
 // ── LOGIN ────────────────────────────────────────────────────────────────────
 app.post("/login", async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, mfaCode } = req.body;
   if (!username || !password)
     return res.status(400).json({ error: "username and password required" });
   try {
+    const body = { login: username, password };
+    if (mfaCode) body["one-time-password"] = mfaCode;
+
     const r = await fetch(`${TT}/sessions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ login: username, password }),
+      body: JSON.stringify(body),
     });
     const d = await r.json();
+
+    // 2FA challenge — Tastytrade sent a code to phone/email
+    if (r.status === 401 && d?.error?.code === "mfa_required") {
+      return res.status(200).json({ mfaRequired: true, message: "Check your phone or email for a verification code." });
+    }
+
     if (!r.ok) {
       const errMsg = d?.error?.message || d?.errors?.[0]?.message || JSON.stringify(d);
       return res.status(401).json({ error: errMsg });
