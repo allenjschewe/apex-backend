@@ -61,7 +61,7 @@ app.get("/transactions", async (req, res) => {
     const d = await r.json();
     console.log("Transactions status:", r.status, "body:", JSON.stringify(d).slice(0, 200));
     if (!r.ok) return res.status(r.status).json({ error: d?.error?.message || JSON.stringify(d) });
-    res.json({ trades: transform(d.data?.items || []) });
+    res.json({ trades: transform(d.data?.items || [], account) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -111,7 +111,7 @@ app.get("/balances", async (req, res) => {
 });
 
 // ── TRANSFORM ─────────────────────────────────────────────────────────────────
-function transform(items) {
+function transform(items, account = "") {
   return items
     .filter(item => item["transaction-type"] === "Trade")
     .map(item => {
@@ -127,6 +127,7 @@ function transform(items) {
       const grade = pnl > 800 ? "A" : pnl > 200 ? "B" : pnl > 0 ? "B" : pnl > -300 ? "C" : "D";
       return {
         id: item.id,
+        account,
         date: (item["transaction-date"] || item["executed-at"] || "").slice(0, 10),
         ticker: item["underlying-symbol"] || item.symbol || "?",
         type, direction, grade,
