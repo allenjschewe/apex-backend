@@ -32,14 +32,16 @@ app.post("/login", async (req, res) => {
     });
     const d = await r.json();
 
-    // 2FA challenge — Tastytrade sent a code to phone/email
-    if (r.status === 401 && d?.error?.code === "mfa_required") {
-      return res.status(200).json({ mfaRequired: true, message: "Check your phone or email for a verification code." });
-    }
+    // Log full response for debugging
+    console.log("TT login status:", r.status, "body:", JSON.stringify(d));
 
     if (!r.ok) {
-      const errMsg = d?.error?.message || d?.errors?.[0]?.message || JSON.stringify(d);
-      return res.status(401).json({ error: errMsg });
+      const errMsg = d?.error?.message || d?.errors?.[0]?.message || "";
+      // Any 401 without an mfaCode = MFA challenge
+      if (r.status === 401 && !mfaCode) {
+        return res.status(200).json({ mfaRequired: true, message: "Check your phone or email for a verification code." });
+      }
+      return res.status(401).json({ error: errMsg || JSON.stringify(d) });
     }
 
     const token = d.data["session-token"];
