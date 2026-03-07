@@ -57,9 +57,10 @@ app.get("/transactions", async (req, res) => {
   try {
     const params = new URLSearchParams({ "per-page": "500", sort: "Desc", "transaction-type": "Trade" });
     if (startDate) params.set("start-date", startDate);
-    const r = await fetch(`${TT}/accounts/${account}/transactions?${params}`, { headers: { Authorization: token } });
+    const r = await fetch(`${TT}/accounts/${account}/transactions?${params}`, { headers: { Authorization: `Bearer ${token}` } });
     const d = await r.json();
-    if (!r.ok) return res.status(r.status).json({ error: d?.error?.message || "Failed" });
+    console.log("Transactions status:", r.status, "body:", JSON.stringify(d).slice(0, 200));
+    if (!r.ok) return res.status(r.status).json({ error: d?.error?.message || JSON.stringify(d) });
     res.json({ trades: transform(d.data?.items || []) });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -71,7 +72,7 @@ app.get("/positions", async (req, res) => {
   const { token, account } = req.query;
   if (!token || !account) return res.status(400).json({ error: "token and account required" });
   try {
-    const r = await fetch(`${TT}/accounts/${account}/positions`, { headers: { Authorization: token } });
+    const r = await fetch(`${TT}/accounts/${account}/positions`, { headers: { Authorization: `Bearer ${token}` } });
     const d = await r.json();
     if (!r.ok) return res.status(r.status).json({ error: d?.error?.message || "Failed" });
     const positions = (d.data?.items || []).map(p => ({
@@ -94,7 +95,7 @@ app.get("/balances", async (req, res) => {
   const { token, account } = req.query;
   if (!token || !account) return res.status(400).json({ error: "token and account required" });
   try {
-    const r = await fetch(`${TT}/accounts/${account}/balances`, { headers: { Authorization: token } });
+    const r = await fetch(`${TT}/accounts/${account}/balances`, { headers: { Authorization: `Bearer ${token}` } });
     const d = await r.json();
     if (!r.ok) return res.status(r.status).json({ error: d?.error?.message || "Failed" });
     const b = d.data;
