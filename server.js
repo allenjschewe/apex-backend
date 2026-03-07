@@ -23,7 +23,10 @@ app.post("/login", async (req, res) => {
       body: JSON.stringify({ login: username, password }),
     });
     const d = await r.json();
-    if (!r.ok) return res.status(401).json({ error: d?.error?.message || "Login failed" });
+    if (!r.ok) {
+      const errMsg = d?.error?.message || d?.errors?.[0]?.message || JSON.stringify(d);
+      return res.status(401).json({ error: errMsg });
+    }
 
     const token = d.data["session-token"];
     const ar = await fetch(`${TT}/customers/me/accounts`, { headers: { Authorization: token } });
