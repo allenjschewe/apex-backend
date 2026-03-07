@@ -16,52 +16,30 @@ const TT = "https://api.tastytrade.com";
 // Health check
 app.get("/", (req, res) => res.json({ status: "Apex Backend running ✓" }));
 
-// ── LOGIN ────────────────────────────────────────────────────────────────────
+// ── OAUTH LOGIN ──────────────────────────────────────────────────────────────
 app.post("/login", async (req, res) => {
-  const { username, password, mfaCode, challengeToken } = req.body;
-  if (!username || !password)
-    return res.status(400).json({ error: "username and password required" });
+  const { clientId, clientSecret, refreshToken } = req.body;
+  if (!clientId || !clientSecret || !refreshToken)
+    return res.status(400).json({ error: "clientId, clientSecret and refreshToken required" });
   try {
-    const body = { login: username, password };
-    if (mfaCode) body["one-time-password"] = mfaCode;
-    const extraHeaders = {};
-    if (challengeToken) extraHeaders["X-Tastyworks-Challenge-Token"] = challengeToken;
-
-    const r = await fetch(`${TT}/sessions`, {
+    const r = await fetch(`${TT}/oauth/token`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
     });
     const d = await r.json();
+    console.log("OAuth token status:", r.status, "body:", JSON.stringify(d));
+    if (!r.ok) return res.status(401).json({ error: d?.error_description || d?.error || JSON.stringify(d) });
 
-    // Log full response for debugging
-    console.log("TT login status:", r.status, "body:", JSON.stringify(d));
-
-    if (!r.ok) {
-      const errMsg = d?.error?.message || "";
-      const errCode = d?.error?.code || "";
-      // Tastytrade device challenge — need to request a code first
-      if (errCode === "device_challenge_required" || r.status === 403) {
-        // Get the challenge token from headers and request a code be sent
-        const challengeToken = r.headers.get("x-tastyworks-challenge-token") || d?.error?.redirect?.required_headers?.[0] || "";
-        // Hit the device-challenge endpoint to trigger SMS/email code
-        try {
-          await fetch(`${TT}/device-challenge`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-Tastyworks-Challenge-Token": challengeToken,
-            },
-          });
-        } catch(e) { console.log("challenge request error:", e.message); }
-        return res.status(200).json({ mfaRequired: true, challengeToken, message: "A verification code has been sent to your phone." });
-      }
-      return res.status(401).json({ error: errMsg || JSON.stringify(d) });
-    }
-
-    const token = d.data["session-token"];
-    const ar = await fetch(`${TT}/customers/me/accounts`, { headers: { Authorization: token } });
+    const token = d.access_token;
+    const ar = await fetch(`${TT}/customers/me/accounts`, { headers: { Authorization: `Bearer ${token}` } });
     const ad = await ar.json();
+    console.log("Accounts status:", ar.status);
     const accounts = (ad.data?.items || []).map(item => ({
       accountNumber: item.account["account-number"],
       nickname: item.account.nickname || item.account["account-type-name"],
