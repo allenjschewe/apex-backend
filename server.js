@@ -114,6 +114,22 @@ app.get("/balances", async (req, res) => {
 function transform(items, account = "") {
   return items
     .filter(item => item["transaction-type"] === "Trade")
+    .filter(item => {
+      const action = (item.action || "").toLowerCase();
+      const inst = (item["instrument-type"] || "").toLowerCase();
+      // For options: only closing transactions have realized P&L
+      // For stocks/futures: only "Sell to Close" or "Buy to Close" are closed trades
+      // Skip "Buy to Open" and "Sell to Open" for stocks — these are open positions
+      if (inst.includes("equity") || inst === "stock") {
+        return action.includes("close") || action.includes("sell to close");
+      }
+      // For options, closing actions realize P&L
+      if (inst.includes("option")) {
+        return action.includes("close") || action.includes("expir") || action.includes("assign") || action.includes("exercise");
+      }
+      // For futures, include all since they're settled differently
+      return true;
+    })
     .map(item => {
       const netVal = parseFloat(item["net-value"] || 0);
       const pnl = item["value-effect"] === "Credit" ? netVal : -netVal;
