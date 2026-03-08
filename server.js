@@ -112,26 +112,21 @@ app.get("/balances", async (req, res) => {
 
 // ── TRANSFORM ─────────────────────────────────────────────────────────────────
 function transform(items, account = "") {
-  // Log raw action + instrument-type for debugging
-  items.filter(i => i["transaction-type"] === "Trade").forEach(i => {
-    console.log("TRADE RAW:", JSON.stringify({ action: i.action, inst: i["instrument-type"], symbol: i["underlying-symbol"] || i.symbol }));
-  });
   return items
     .filter(item => item["transaction-type"] === "Trade")
     .filter(item => {
       const action = (item.action || "").toLowerCase();
       const inst = (item["instrument-type"] || "").toLowerCase();
-      // For options: only closing transactions have realized P&L
-      // For stocks/futures: only "Sell to Close" or "Buy to Close" are closed trades
-      // Skip "Buy to Open" and "Sell to Open" for stocks — these are open positions
-      if (inst.includes("equity") || inst === "stock") {
-        return action.includes("close") || action.includes("sell to close");
+      // "Equity" = plain stock, "Equity Option" = option on stock, "Future Option" etc
+      if (inst === "equity") {
+        // Plain stock — only include when selling (closing a long position)
+        return action === "sell to close" || action === "sell";
       }
-      // For options, closing actions realize P&L
       if (inst.includes("option")) {
+        // Options (Equity Option, Future Option) — only closing/expiry/assignment
         return action.includes("close") || action.includes("expir") || action.includes("assign") || action.includes("exercise");
       }
-      // For futures, include all since they're settled differently
+      // Futures and everything else — include all
       return true;
     })
     .map(item => {
