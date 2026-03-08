@@ -112,49 +112,67 @@ app.get("/balances", async (req, res) => {
 
 // ── TRANSFORM ─────────────────────────────────────────────────────────────────
 function transform(items, account = "") {
-  return items
-    .filter(item => item["transaction-type"] === "Trade")
-    .filter(item => {
-      const action = (item.action || "").toLowerCase();
-      const inst = (item["instrument-type"] || "").toLowerCase();
-      // "Equity" = plain stock, "Equity Option" = option on stock, "Future Option" etc
-      if (inst === "equity") {
-        // Plain stock — only include when selling (closing a long position)
-        return action === "sell to close" || action === "sell";
-      }
-      if (inst.includes("option")) {
-        // Options (Equity Option, Future Option) — only closing/expiry/assignment
-        return action.includes("close") || action.includes("expir") || action.includes("assign") || action.includes("exercise");
-      }
-      // Futures and everything else — include all
-      return true;
-    })
-    .map(item => {
-      const netVal = parseFloat(item["net-value"] || 0);
-      const pnl = item["value-effect"] === "Credit" ? netVal : -netVal;
-      const inst = item["instrument-type"] || "";
-      const type = inst.includes("Option") ? "Options" : inst.includes("Future") ? "Futures" : "Stock";
-      const action = item.action || "";
-      let direction = "LONG";
-      if (action.toLowerCase().includes("call")) direction = "CALL";
-      else if (action.toLowerCase().includes("put")) direction = "PUT";
-      else if (action.toLowerCase().includes("sell") && action.toLowerCase().includes("open")) direction = "SHORT";
-      const grade = pnl > 800 ? "A" : pnl > 200 ? "B" : pnl > 0 ? "B" : pnl > -300 ? "C" : "D";
-      return {
+  const trades = items.filter(item => item["transaction-type"] === "Trade");
+
+  // Group all legs by underlying symbol + date into round-trip trades
+  // This handles spreads (multiple open/close legs on same symbol/day)
+  const groups = {};
+  trades.forEach(item => {
+    const symbol = item["underlying-symbol"] || item.symbol || "?";
+    const date = (item["transaction-date"] || item["executed-at"] || "").slice(0, 10);
+    const inst = (item["instrument-type"] || "").toLowerCase();
+    const action = (item.action || "").toLowerCase();
+    const netVal = parseFloat(item["net-value"] || 0);
+    const pnl = item["value-effect"] === "Credit" ? netVal : -netVal;
+
+    // Skip plain stock buys (open positions) — only include when they close
+    if (inst === "equity" && (action === "buy to open" || action === "buy")) return;
+
+    const key = `${symbol}__${date}`;
+    if (!groups[key]) {
+      groups[key] = {
         id: item.id,
         account,
-        date: (item["transaction-date"] || item["executed-at"] || "").slice(0, 10),
-        ticker: item["underlying-symbol"] || item.symbol || "?",
-        type, direction, grade,
-        strike: item["strike-price"] ? String(item["strike-price"]) : "",
-        expiry: item["expiration-date"] || "",
-        entry: parseFloat(item.price || 0),
-        exit: 0,
+        date,
+        ticker: symbol,
+        inst: item["instrument-type"] || "",
+        actions: [],
+        pnl: 0,
         contracts: parseFloat(item.quantity || 1),
-        pnl: Math.round(pnl * 100) / 100,
+        expiry: item["expiration-date"] || "",
+        notes: [],
+      };
+    }
+    groups[key].pnl += pnl;
+    groups[key].actions.push(item.action || "");
+    if (item.description) groups[key].notes.push(item.description);
+  });
+
+  return Object.values(groups)
+    .filter(g => Math.abs(g.pnl) > 0.01) // skip zero-P&L rows (fees only etc)
+    .map(g => {
+      const inst = g.inst;
+      const type = inst.includes("Option") ? "Options" : inst.includes("Future") ? "Futures" : "Stock";
+      const pnl = Math.round(g.pnl * 100) / 100;
+      const grade = pnl > 800 ? "A" : pnl > 200 ? "B" : pnl > 0 ? "B" : pnl > -300 ? "C" : "D";
+      // Determine direction from actions — if any "Sell to Open" it's a short/credit spread
+      const hasShortLeg = g.actions.some(a => a.toLowerCase().includes("sell to open"));
+      const direction = type === "Options" ? (hasShortLeg ? "PUT" : "CALL") : "LONG";
+      return {
+        id: g.id,
+        account: g.account,
+        date: g.date,
+        ticker: g.ticker,
+        type, direction, grade,
+        strike: "",
+        expiry: g.expiry,
+        entry: 0,
+        exit: 0,
+        contracts: g.contracts,
+        pnl,
         emotion: "Neutral",
         setup: "Import",
-        notes: item.description || "",
+        notes: [...new Set(g.notes)].slice(0,2).join(" | "),
         duration: 0,
         delta: null, gamma: null, theta: null, vega: null, iv: null, ivRank: null,
       };
