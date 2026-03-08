@@ -112,6 +112,10 @@ app.get("/balances", async (req, res) => {
 
 // ── TRANSFORM ─────────────────────────────────────────────────────────────────
 function transform(items, account = "") {
+  // Log raw action + instrument-type for debugging
+  items.filter(i => i["transaction-type"] === "Trade").forEach(i => {
+    console.log("TRADE RAW:", JSON.stringify({ action: i.action, inst: i["instrument-type"], symbol: i["underlying-symbol"] || i.symbol }));
+  });
   return items
     .filter(item => item["transaction-type"] === "Trade")
     .filter(item => {
